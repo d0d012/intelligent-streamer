@@ -1,0 +1,9 @@
+open this exe file intelligent-streamer\mediamtx_v1.12.2_windows_amd64\mediamtx.exe
+
+run that commands on cmd
+cd C:\Users\PC\Documents\GitHub\intelligent-streamer
+ffmpeg -re -stream_loop -1 -i test.mp4 -c copy -f rtsp rtsp://localhost:8554/mystream
+
+finally run RTSPClient.py file
+
+ctrl c for stop
