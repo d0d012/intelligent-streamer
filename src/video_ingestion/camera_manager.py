@@ -346,6 +346,7 @@ class VideoSource:
 class CameraManager:
     """
     Manages multiple video sources and coordinates their operations.
+    Focused on RTSP streaming for video distribution.
     """
     
     def __init__(self):
@@ -366,10 +367,10 @@ class CameraManager:
         self.gstreamer_path = self.video_config.get("gstreamer_path", "gst-launch-1.0")
         
         # Streaming settings
-        self.base_port = self.streaming_config.get("base_port", 5000)
+        self.base_port = self.streaming_config.get("base_port", 8554)  # Default RTSP port range
         self.next_port = self.base_port
         
-        self.logger.info("Camera manager initialized")
+        self.logger.info("Camera manager initialized with RTSP streaming")
     
     def add_source(
         self,
@@ -379,7 +380,7 @@ class CameraManager:
         framerate: int = None
     ) -> Optional[str]:
         """
-        Add a new video source.
+        Add a new video source with RTSP streaming.
         
         Args:
             source: Camera index (int) or video source URL (str)
@@ -415,63 +416,41 @@ class CameraManager:
                 framerate=framerate
             )
             
-            # Add streaming pipelines
-            # Raw UDP pipeline
-            raw_udp_port = self._get_next_port()
-            raw_udp_pipeline = UdpPipeline(
+            # Add RTSP streaming pipelines
+            # Raw RTSP pipeline
+            raw_rtsp_port = self._get_next_port()
+            raw_rtsp_pipeline = RtspPipeline(
                 source_id=source_id,
                 width=resolution[0],
                 height=resolution[1],
                 framerate=framerate,
-                port=raw_udp_port,
+                port=raw_rtsp_port,
+                path=f"/{source_id}/raw",
                 gst_path=self.gstreamer_path
             )
-            video_source.add_raw_pipeline("udp", raw_udp_pipeline)
+            video_source.add_raw_pipeline("rtsp", raw_rtsp_pipeline)
             
-            # Annotated UDP pipeline
-            annotated_udp_port = self._get_next_port()
-            annotated_udp_pipeline = UdpPipeline(
+            # Annotated RTSP pipeline
+            annotated_rtsp_port = self._get_next_port()
+            annotated_rtsp_pipeline = RtspPipeline(
                 source_id=source_id,
                 width=resolution[0],
                 height=resolution[1],
                 framerate=framerate,
-                port=annotated_udp_port,
+                port=annotated_rtsp_port,
+                path=f"/{source_id}/annotated",
                 gst_path=self.gstreamer_path
             )
-            video_source.add_annotated_pipeline("udp", annotated_udp_pipeline)
-            
-            # Add RTSP pipelines if enabled
-            if self.streaming_config.get("rtsp_enabled", False):
-                # Raw RTSP pipeline
-                raw_rtsp_port = self._get_next_port()
-                raw_rtsp_pipeline = RtspPipeline(
-                    source_id=source_id,
-                    width=resolution[0],
-                    height=resolution[1],
-                    framerate=framerate,
-                    port=raw_rtsp_port,
-                    path=f"/{source_id}/raw",
-                    gst_path=self.gstreamer_path
-                )
-                video_source.add_raw_pipeline("rtsp", raw_rtsp_pipeline)
-                
-                # Annotated RTSP pipeline
-                annotated_rtsp_port = self._get_next_port()
-                annotated_rtsp_pipeline = RtspPipeline(
-                    source_id=source_id,
-                    width=resolution[0],
-                    height=resolution[1],
-                    framerate=framerate,
-                    port=annotated_rtsp_port,
-                    path=f"/{source_id}/annotated",
-                    gst_path=self.gstreamer_path
-                )
-                video_source.add_annotated_pipeline("rtsp", annotated_rtsp_pipeline)
+            video_source.add_annotated_pipeline("rtsp", annotated_rtsp_pipeline)
             
             # Store the source
             self.sources[source_id] = video_source
             
-            self.logger.info(f"Added source: {source_id}")
+            # Log the RTSP URLs for convenience
+            self.logger.info(f"Added source {source_id} with RTSP streams:")
+            self.logger.info(f"  - Raw: rtsp://localhost:{raw_rtsp_port}/{source_id}/raw")
+            self.logger.info(f"  - Annotated: rtsp://localhost:{annotated_rtsp_port}/{source_id}/annotated")
+            
             return source_id
             
         except Exception as e:
@@ -605,6 +584,43 @@ class CameraManager:
             for source_id, source in self.sources.items()
         }
     
+    def get_rtsp_urls(self, source_id: str = None) -> Dict[str, Dict[str, str]]:
+        """
+        Get RTSP URLs for all sources or a specific source.
+        
+        Args:
+            source_id: Optional ID of a specific source
+            
+        Returns:
+            Dictionary with RTSP URLs by source and stream type
+        """
+        result = {}
+        
+        # Function to get URLs for a single source
+        def get_source_urls(src_id, source):
+            urls = {"raw": None, "annotated": None}
+            
+            if "rtsp" in source.raw_pipelines:
+                pipeline = source.raw_pipelines["rtsp"]
+                urls["raw"] = f"rtsp://localhost:{pipeline.port}{pipeline.path}"
+            
+            if "rtsp" in source.annotated_pipelines:
+                pipeline = source.annotated_pipelines["rtsp"]
+                urls["annotated"] = f"rtsp://localhost:{pipeline.port}{pipeline.path}"
+            
+            return urls
+        
+        # Get URLs for a specific source or all sources
+        if source_id:
+            source = self.get_source(source_id)
+            if source:
+                result[source_id] = get_source_urls(source_id, source)
+        else:
+            for src_id, source in self.sources.items():
+                result[src_id] = get_source_urls(src_id, source)
+        
+        return result
+    
     def toggle_analytics(self, source_id: str, enabled: bool) -> bool:
         """
         Enable or disable analytics for a source.
@@ -639,7 +655,7 @@ class CameraManager:
     
     def _get_next_port(self) -> int:
         """
-        Get the next available port for streaming.
+        Get the next available port for RTSP streaming.
         
         Returns:
             Port number
