@@ -1,0 +1,12 @@
+{
+  "api": {
+    "debug": true
+  },
+  "logging": {
+    "level": "DEBUG"
+  },
+  "analytics": {
+    "enabled": true,
+    "confidence_threshold": 0.4
+  }
+}

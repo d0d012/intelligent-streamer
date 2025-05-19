@@ -1,0 +1,15 @@
+{
+  "api": {
+    "debug": false
+  },
+  "logging": {
+    "level": "WARNING",
+    "file_enabled": true
+  },
+  "analytics": {
+    "confidence_threshold": 0.6
+  },
+  "storage": {
+    "recording_enabled": true
+  }
+}

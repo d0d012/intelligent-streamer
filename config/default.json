@@ -1,0 +1,29 @@
+{
+  "api": {
+    "host": "0.0.0.0",
+    "port": 8000,
+    "debug": true
+  },
+  "video_ingestion": {
+    "default_resolution": [ 640, 480 ],
+    "default_framerate": 30,
+    "gstreamer_path": "gst-launch-1.0"
+  },
+  "analytics": {
+    "enabled": true,
+    "default_model": "yolov5s",
+    "confidence_threshold": 0.5
+  },
+  "streaming": {
+    "base_port": 5000,
+    "rtsp_enabled": true,
+    "udp_enabled": true,
+    "bitrate": 800
+  },
+  "mqtt": {
+    "enabled": false,
+    "broker": "localhost",
+    "port": 1883,
+    "topic_prefix": "video_analytics"
+  }
+}
