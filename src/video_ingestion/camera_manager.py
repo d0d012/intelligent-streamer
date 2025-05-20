@@ -16,6 +16,8 @@ from src.utils.logging import get_logger
 from .pipelines.rtsp import RtspPipeline
 from .pipelines.udp import UdpPipeline
 
+from src.analytics.engine import AnalyticsEngine
+
 class VideoSource:
     """
     Represents a single video source (camera, RTSP stream, etc.)
@@ -340,6 +342,129 @@ class VideoSource:
         if was_active:
             return self.start()
         
+        return True
+    def _process_frames(self):
+        """
+        Process frames from the source.
+        This runs in a separate thread.
+        """
+        self.logger.debug("Frame processing thread started")
+        
+        # Timing variables
+        start_time = time.time()
+        frame_count = 0
+        
+        # Get analytics engine singleton
+        analytics_engine = None
+        if self.analytics_enabled:
+            try:
+                # Import here to avoid circular imports
+                from src.analytics.engine import AnalyticsEngine
+                analytics_engine = AnalyticsEngine()
+                
+                # Ensure source is registered
+                if not analytics_engine.add_source(self.source_id, self.resolution[0], self.resolution[1]):
+                    self.logger.warning("Failed to register source with analytics engine")
+            except Exception as e:
+                self.logger.error(f"Error initializing analytics: {e}")
+        
+        while not self._stop_event.is_set():
+            # Capture frame
+            ret, frame = self.capture.read()
+            
+            if not ret:
+                self.logger.warning("Failed to capture frame")
+                # Small delay to avoid CPU spinning on error
+                time.sleep(0.1)
+                continue
+            
+            # Store captured frame
+            self.last_frame = frame
+            self.last_frame_time = time.time()
+            
+            # Send raw frame to raw pipelines
+            frame_bytes = frame.tobytes()
+            
+            for name, pipeline in self.raw_pipelines.items():
+                if not pipeline.send_frame(frame_bytes):
+                    self.logger.warning(f"Failed to send frame to raw pipeline {name}")
+            
+            # Process frame for analytics if enabled
+            processed_frame = frame.copy()
+            
+            if self.analytics_enabled and analytics_engine and analytics_engine.active:
+                # Send frame to analytics engine for processing
+                analytics_engine.process_frame(self.source_id, frame, self.frame_count)
+                
+                # Get annotated frame with analytics results
+                processed_frame = analytics_engine.annotate_frame(self.source_id, frame)
+            else:
+                # Basic annotation if analytics not available
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                cv2.putText(
+                    processed_frame, 
+                    f"{timestamp} - {self.source_id}", 
+                    (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 
+                    0.7, 
+                    (0, 255, 0), 
+                    2
+                )
+            
+            # Send processed frame to annotated pipelines
+            processed_bytes = processed_frame.tobytes()
+            
+            for name, pipeline in self.annotated_pipelines.items():
+                if not pipeline.send_frame(processed_bytes):
+                    self.logger.warning(f"Failed to send frame to annotated pipeline {name}")
+            
+            # Update frame count
+            self.frame_count += 1
+            frame_count += 1
+            
+            # Calculate FPS every second
+            current_time = time.time()
+            elapsed = current_time - start_time
+            
+            if elapsed >= 1.0:
+                self.fps = frame_count / elapsed
+                # Reset counters
+                frame_count = 0
+                start_time = current_time
+                
+                # Log FPS
+                self.logger.debug(f"Source {self.source_id} FPS: {self.fps:.2f}")
+        
+        self.logger.debug("Frame processing thread stopped")
+    
+    # [Add this method to VideoSource]
+    def toggle_analytics(self, enabled: bool) -> bool:
+        """
+        Enable or disable analytics processing.
+        
+        Args:
+            enabled: Whether analytics should be enabled
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        prev_state = self.analytics_enabled
+        self.analytics_enabled = enabled
+        
+        # Update analytics engine if needed
+        if prev_state != enabled:
+            try:
+                # Import here to avoid circular imports
+                from src.analytics.engine import AnalyticsEngine
+                analytics_engine = AnalyticsEngine()
+                
+                # Toggle analytics for this source
+                if not analytics_engine.toggle_source(self.source_id, enabled):
+                    self.logger.warning("Failed to toggle analytics in engine")
+            except Exception as e:
+                self.logger.error(f"Error toggling analytics: {e}")
+        
+        self.logger.info(f"Analytics {'enabled' if enabled else 'disabled'} for {self.source_id}")
         return True
 
 
